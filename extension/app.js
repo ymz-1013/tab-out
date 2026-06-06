@@ -42,7 +42,8 @@ async function fetchOpenTabs() {
     openTabs = tabs.map(t => ({
       id:       t.id,
       url:      t.url,
-      title:    t.title,
+      title:    t.title || t.url,
+      favIconUrl: t.favIconUrl,
       windowId: t.windowId,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
@@ -346,14 +347,14 @@ function playCloseSound() {
  */
 function shootConfetti(x, y) {
   const colors = [
-    '#c8713a', // amber
-    '#e8a070', // amber light
-    '#5a7a62', // sage
-    '#8aaa92', // sage light
-    '#5a6b7a', // slate
-    '#8a9baa', // slate light
-    '#d4b896', // warm paper
-    '#b35a5a', // rose
+    '#3d9970', // mint green
+    '#7fc8a8', // mint light
+    '#2d6a4f', // deep mint
+    '#52b788', // mint medium
+    '#4a6b6a', // slate teal
+    '#7a9490', // muted teal
+    '#d8e6e1', // mint paper
+    '#e07a5f', // coral
   ];
 
   const particleCount = 17;
@@ -446,25 +447,38 @@ function showToast(message) {
  * checkAndShowEmptyState()
  *
  * Shows a cheerful "Inbox zero" message when all domain cards are gone.
+ * Only triggers when cards are actually closed (removed from DOM), not when
+ * they're just hidden by search.
  */
 function checkAndShowEmptyState() {
   const missionsEl = document.getElementById('openTabsMissions');
   if (!missionsEl) return;
 
   const remaining = missionsEl.querySelectorAll('.mission-card:not(.closing)').length;
-  if (remaining > 0) return;
+  const emptyState = missionsEl.querySelector('.missions-empty-state:not(.search-empty-state)');
 
-  missionsEl.innerHTML = `
-    <div class="missions-empty-state">
+  if (remaining > 0) {
+    if (emptyState) emptyState.remove();
+    return;
+  }
+
+  // Don't create empty state if search empty state is already shown
+  if (missionsEl.querySelector('.search-empty-state')) return;
+
+  if (!emptyState) {
+    const div = document.createElement('div');
+    div.className = 'missions-empty-state';
+    div.innerHTML = `
       <div class="empty-checkmark">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
         </svg>
       </div>
-      <div class="empty-title">Inbox zero, but for tabs.</div>
-      <div class="empty-subtitle">You're free.</div>
-    </div>
-  `;
+      <div class="empty-title">标签已清零</div>
+      <div class="empty-subtitle">你自由了。</div>
+    `;
+    missionsEl.appendChild(div);
+  }
 
   const countEl = document.getElementById('openTabsSectionCount');
   if (countEl) countEl.textContent = '0 domains';
@@ -484,33 +498,137 @@ function timeAgo(dateStr) {
   const diffHours = Math.floor((now - then) / 3600000);
   const diffDays  = Math.floor((now - then) / 86400000);
 
-  if (diffMins < 1)   return 'just now';
-  if (diffMins < 60)  return diffMins + ' min ago';
-  if (diffHours < 24) return diffHours + ' hr' + (diffHours !== 1 ? 's' : '') + ' ago';
-  if (diffDays === 1) return 'yesterday';
-  return diffDays + ' days ago';
+  if (diffMins < 1)   return '刚刚';
+  if (diffMins < 60)  return diffMins + ' 分钟前';
+  if (diffHours < 24) return diffHours + ' 小时前';
+  if (diffDays === 1) return '昨天';
+  return diffDays + ' 天前';
 }
 
 /**
- * getGreeting() — "Good morning / afternoon / evening"
+ * getGreeting() — 获取自定义问候语，如果没有则返回默认问候
  */
-function getGreeting() {
+async function getGreeting() {
+  try {
+    const { customGreeting } = await chrome.storage.local.get('customGreeting');
+    if (customGreeting && customGreeting.trim()) {
+      return customGreeting.trim();
+    }
+  } catch (err) {
+    console.warn('[tab-out] Could not load custom greeting:', err);
+  }
+  
+  // 默认问候语
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (hour < 12) return '早上好';
+  if (hour < 17) return '下午好';
+  return '晚上好';
 }
 
 /**
- * getDateDisplay() — "Friday, April 4, 2026"
+ * saveCustomGreeting(text)
+ *
+ * 保存自定义问候语到 storage
+ */
+async function saveCustomGreeting(text) {
+  await chrome.storage.local.set({ customGreeting: text.trim() });
+}
+
+/**
+ * resetCustomGreeting()
+ *
+ * 重置为默认问候语
+ */
+async function resetCustomGreeting() {
+  await chrome.storage.local.remove('customGreeting');
+}
+
+/**
+ * showEditGreetingModal()
+ *
+ * 显示编辑问候语的模态框
+ */
+async function showEditGreetingModal() {
+  const currentGreeting = await getGreeting();
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'greeting-edit-modal-overlay';
+  overlay.innerHTML = `
+    <div class="greeting-edit-modal">
+      <h3>编辑问候语</h3>
+      <div class="greeting-hint">输入你想每天看到的激励话语，支持换行</div>
+      <div class="greeting-edit-form-group">
+        <label for="greetingInput">问候语</label>
+        <textarea id="greetingInput" placeholder="例如：今天也要加油哦！">${currentGreeting.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+      </div>
+      <div class="greeting-edit-modal-actions">
+        <div class="left-actions">
+          <button class="action-btn danger" data-action="reset-greeting">重置为默认</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="action-btn" data-action="cancel-edit-greeting">取消</button>
+          <button class="action-btn primary" data-action="save-greeting">保存</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Focus textarea
+  setTimeout(() => {
+    const input = document.getElementById('greetingInput');
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }, 100);
+
+  // Close on overlay click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+
+  // Close on Escape
+  const handleEscape = (e) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleEnter);
+    }
+  };
+
+  // Save on Ctrl/Cmd + Enter
+  const handleEnter = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      const saveBtn = overlay.querySelector('[data-action="save-greeting"]');
+      if (saveBtn) saveBtn.click();
+    }
+  };
+
+  document.addEventListener('keydown', handleEscape);
+  document.addEventListener('keydown', handleEnter);
+}
+
+/**
+ * getDateDisplay() — "2026年4月4日 星期五 14:30:45"
  */
 function getDateDisplay() {
-  return new Date().toLocaleDateString('en-US', {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('zh-CN', {
     weekday: 'long',
-    year:    'numeric',
-    month:   'long',
-    day:     'numeric',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
   });
+  const timeStr = now.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  return `${dateStr} ${timeStr}`;
 }
 
 
@@ -765,10 +883,16 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
+    const safeRawTitle = (tab.title || '').replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+    
+    // Use the tab's own favicon first, fall back to Yandex favicon service
+    let faviconUrl = tab.favIconUrl;
+    if (!faviconUrl && domain) {
+      faviconUrl = `https://favicon.yandex.net/favicon/${domain}`;
+    }
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" data-tab-title="${safeRawTitle}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
@@ -785,7 +909,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   return `
     <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
     <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
-      <span class="chip-text">+${hiddenTabs.length} more</span>
+      <span class="chip-text">+${hiddenTabs.length} 更多</span>
     </div>`;
 }
 
@@ -815,12 +939,12 @@ function renderDomainCard(group) {
 
   const tabBadge = `<span class="open-tabs-badge">
     ${ICONS.tabs}
-    ${tabCount} tab${tabCount !== 1 ? 's' : ''} open
+    ${tabCount} 个标签已打开
   </span>`;
 
   const dupeBadge = hasDupes
-    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
-        ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+    ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(61,153,112,0.08);">
+        ${totalExtras} 个重复
       </span>`
     : '';
 
@@ -846,10 +970,16 @@ function renderDomainCard(group) {
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
+    const safeRawTitle = (tab.title || '').replace(/"/g, '&quot;');
     let domain = '';
     try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
+    
+    // Use the tab's own favicon first, fall back to Yandex favicon service
+    let faviconUrl = tab.favIconUrl;
+    if (!faviconUrl && domain) {
+      faviconUrl = `https://favicon.yandex.net/favicon/${domain}`;
+    }
+    return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" data-tab-title="${safeRawTitle}" title="${safeTitle}">
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
@@ -866,14 +996,14 @@ function renderDomainCard(group) {
   let actionsHtml = `
     <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
       ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
+      关闭全部 ${tabCount} 个标签
     </button>`;
 
   if (hasDupes) {
     const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
     actionsHtml += `
       <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
-        Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+        关闭 ${totalExtras} 个重复
       </button>`;
   }
 
@@ -882,7 +1012,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${isLanding ? '常用主页' : (group.label || friendlyDomain(group.domain))}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -891,11 +1021,191 @@ function renderDomainCard(group) {
       </div>
       <div class="mission-meta">
         <div class="mission-page-count">${tabCount}</div>
-        <div class="mission-page-label">tabs</div>
+        <div class="mission-page-label">标签</div>
       </div>
     </div>`;
 }
 
+
+/* ----------------------------------------------------------------
+   QUICK LINKS — frequently used websites
+   Stored in chrome.storage.local under the "quickLinks" key.
+   Data shape:
+   [
+     { id: "1", name: "GitHub", url: "https://github.com" },
+     { id: "2", name: "Gmail", url: "https://mail.google.com" },
+     ...
+   ]
+   ---------------------------------------------------------------- */
+
+/**
+ * getQuickLinks()
+ *
+ * Returns all quick links from chrome.storage.local.
+ */
+async function getQuickLinks() {
+  const { quickLinks = [] } = await chrome.storage.local.get('quickLinks');
+  return quickLinks;
+}
+
+/**
+ * addQuickLink(name, url)
+ *
+ * Adds a new quick link to storage.
+ */
+async function addQuickLink(name, url) {
+  const quickLinks = await getQuickLinks();
+  // Ensure URL has protocol
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+  quickLinks.push({
+    id: Date.now().toString(),
+    name: name.trim(),
+    url: url.trim(),
+  });
+  await chrome.storage.local.set({ quickLinks });
+}
+
+/**
+ * removeQuickLink(id)
+ *
+ * Removes a quick link from storage.
+ */
+async function removeQuickLink(id) {
+  const quickLinks = await getQuickLinks();
+  const filtered = quickLinks.filter(link => link.id !== id);
+  await chrome.storage.local.set({ quickLinks: filtered });
+}
+
+/**
+ * renderQuickLinks()
+ *
+ * Renders the quick links section.
+ */
+async function renderQuickLinks() {
+  const section = document.getElementById('quickLinksSection');
+  const container = document.getElementById('quickLinks');
+  if (!section || !container) return;
+
+  try {
+    const quickLinks = await getQuickLinks();
+
+    // Always show the section so users can add quick links
+    section.style.display = 'block';
+
+    if (quickLinks.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 24px; text-align: center; color: var(--muted); font-size: 13px; font-style: italic; width: 100%;">
+          暂无快捷链接。点击"添加"按钮添加你常用的网站。
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = quickLinks.map(link => {
+      const safeName = link.name.replace(/"/g, '&quot;');
+      const safeUrl = link.url.replace(/"/g, '&quot;');
+      let domain = '';
+      try { domain = new URL(link.url).hostname; } catch {}
+
+      // Use the same favicon as open tabs if available, otherwise use Yandex favicon service
+      const matchingTab = openTabs.find(t => t.url === link.url);
+      let faviconUrl = matchingTab?.favIconUrl;
+      if (!faviconUrl && domain) {
+        faviconUrl = `https://favicon.yandex.net/favicon/${domain}`;
+      }
+
+      const displayUrl = domain || link.url;
+
+      return `
+        <div class="quick-link-card" data-action="open-quick-link" data-url="${safeUrl}">
+          ${faviconUrl ? `<img class="quick-link-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+          <div class="quick-link-info">
+            <div class="quick-link-name">${safeName}</div>
+            <div class="quick-link-url">${displayUrl}</div>
+          </div>
+          <button class="quick-link-remove" data-action="remove-quick-link" data-id="${link.id}" title="Remove">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      `;
+    }).join('');
+
+  } catch (err) {
+    console.warn('[tab-out] Could not load quick links:', err);
+    section.style.display = 'none';
+  }
+}
+
+/**
+ * showAddQuickLinkModal()
+ *
+ * Displays the modal for adding a new quick link.
+ */
+function showAddQuickLinkModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'quick-link-modal-overlay';
+  overlay.innerHTML = `
+    <div class="quick-link-modal">
+      <h3>添加快捷链接</h3>
+      <div class="quick-link-form-group">
+        <label for="quickLinkName">名称</label>
+        <input type="text" id="quickLinkName" placeholder="例如：GitHub" autocomplete="off">
+      </div>
+      <div class="quick-link-form-group">
+        <label for="quickLinkUrl">网址</label>
+        <input type="text" id="quickLinkUrl" placeholder="例如：github.com" autocomplete="off">
+      </div>
+      <div class="quick-link-modal-actions">
+        <button class="action-btn" data-action="cancel-quick-link">取消</button>
+        <button class="action-btn primary" data-action="save-quick-link">保存</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Focus name input
+  setTimeout(() => {
+    const nameInput = document.getElementById('quickLinkName');
+    if (nameInput) nameInput.focus();
+  }, 100);
+
+  // Close on overlay click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+
+  // Close on Escape
+  const handleEscape = (e) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleEnter);
+    }
+  };
+
+  // Save on Enter
+  const handleEnter = (e) => {
+    if (e.key === 'Enter') {
+      const nameInput = document.getElementById('quickLinkName');
+      const urlInput = document.getElementById('quickLinkUrl');
+      const name = nameInput?.value.trim();
+      const url = urlInput?.value.trim();
+
+      if (name && url) {
+        e.preventDefault();
+        const saveBtn = overlay.querySelector('[data-action="save-quick-link"]');
+        if (saveBtn) saveBtn.click();
+      }
+    }
+  };
+
+  document.addEventListener('keydown', handleEscape);
+  document.addEventListener('keydown', handleEnter);
+}
 
 /* ----------------------------------------------------------------
    SAVED FOR LATER — Render Checklist Column
@@ -932,7 +1242,7 @@ async function renderDeferredColumn() {
 
     // Render active checklist items
     if (active.length > 0) {
-      countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
+      countEl.textContent = `${active.length} 项`;
       list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
       list.style.display = 'block';
       empty.style.display = 'none';
@@ -966,7 +1276,9 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  
+  // Use Yandex favicon service for better reliability
+  const faviconUrl = domain ? `https://favicon.yandex.net/favicon/${domain}` : '';
   const ago = timeAgo(item.savedAt);
 
   return `
@@ -981,7 +1293,7 @@ function renderDeferredItem(item) {
           <span>${ago}</span>
         </div>
       </div>
-      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Dismiss">
+      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="移除">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>`;
@@ -1023,8 +1335,11 @@ async function renderStaticDashboard() {
   // --- Header ---
   const greetingEl = document.getElementById('greeting');
   const dateEl     = document.getElementById('dateDisplay');
-  if (greetingEl) greetingEl.textContent = getGreeting();
+  if (greetingEl) greetingEl.textContent = await getGreeting();
   if (dateEl)     dateEl.textContent     = getDateDisplay();
+
+  // --- Render Quick Links ---
+  await renderQuickLinks();
 
   // --- Fetch tabs ---
   await fetchOpenTabs();
@@ -1149,17 +1464,13 @@ async function renderStaticDashboard() {
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
 
   if (domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = '打开的标签';
+    openTabsSectionCount.innerHTML = `${domainGroups.length} 个域名 &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} 关闭全部 ${realTabs.length} 个标签</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
   } else if (openTabsSection) {
     openTabsSection.style.display = 'none';
   }
-
-  // --- Footer stats ---
-  const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
@@ -1198,7 +1509,7 @@ document.addEventListener('click', async (e) => {
       banner.style.opacity = '0';
       setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
     }
-    showToast('Closed extra Tab Out tabs');
+    showToast('已关闭多余的 Tab Out 标签');
     return;
   }
 
@@ -1256,11 +1567,7 @@ document.addEventListener('click', async (e) => {
       }, 200);
     }
 
-    // Update footer
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
-
-    showToast('Tab closed');
+    showToast('标签已关闭');
     return;
   }
 
@@ -1276,7 +1583,7 @@ document.addEventListener('click', async (e) => {
       await saveTabForLater({ url: tabUrl, title: tabTitle });
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
-      showToast('Failed to save tab');
+      showToast('保存标签失败');
       return;
     }
 
@@ -1295,7 +1602,7 @@ document.addEventListener('click', async (e) => {
       setTimeout(() => chip.remove(), 200);
     }
 
-    showToast('Saved for later');
+    showToast('已保存到稍后阅读');
     await renderDeferredColumn();
     return;
   }
@@ -1340,6 +1647,127 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  // ---- Edit Greeting ----
+  if (action === 'edit-greeting') {
+    await showEditGreetingModal();
+    return;
+  }
+
+  // ---- Save Greeting ----
+  if (action === 'save-greeting') {
+    const input = document.getElementById('greetingInput');
+    const text = input?.value;
+    
+    if (!text || !text.trim()) {
+      showToast('请输入问候语');
+      return;
+    }
+
+    await saveCustomGreeting(text);
+    
+    const overlay = document.querySelector('.greeting-edit-modal-overlay');
+    if (overlay) overlay.remove();
+
+    // Update the greeting display
+    const greetingEl = document.getElementById('greeting');
+    if (greetingEl) greetingEl.textContent = await getGreeting();
+
+    showToast('问候语已保存');
+    return;
+  }
+
+  // ---- Reset Greeting ----
+  if (action === 'reset-greeting') {
+    await resetCustomGreeting();
+    
+    const overlay = document.querySelector('.greeting-edit-modal-overlay');
+    if (overlay) overlay.remove();
+
+    // Update the greeting display
+    const greetingEl = document.getElementById('greeting');
+    if (greetingEl) greetingEl.textContent = await getGreeting();
+
+    showToast('已重置为默认问候语');
+    return;
+  }
+
+  // ---- Cancel Edit Greeting ----
+  if (action === 'cancel-edit-greeting') {
+    const overlay = document.querySelector('.greeting-edit-modal-overlay');
+    if (overlay) overlay.remove();
+    return;
+  }
+
+  // ---- Add Quick Link ----
+  if (action === 'add-quick-link') {
+    showAddQuickLinkModal();
+    return;
+  }
+
+  // ---- Open Quick Link ----
+  if (action === 'open-quick-link') {
+    const url = actionEl.dataset.url;
+    if (url) {
+      // Check if URL is already open
+      const allTabs = await chrome.tabs.query({});
+      const existingTab = allTabs.find(t => t.url === url);
+      if (existingTab) {
+        await chrome.tabs.update(existingTab.id, { active: true });
+        await chrome.windows.update(existingTab.windowId, { focused: true });
+      } else {
+        await chrome.tabs.create({ url });
+      }
+    }
+    return;
+  }
+
+  // ---- Remove Quick Link ----
+  if (action === 'remove-quick-link') {
+    e.stopPropagation();
+    const id = actionEl.dataset.id;
+    if (!id) return;
+
+    const card = actionEl.closest('.quick-link-card');
+    if (card) {
+      card.style.transition = 'opacity 0.2s, transform 0.2s';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.8)';
+    }
+
+    await removeQuickLink(id);
+    setTimeout(() => renderQuickLinks(), 200);
+    showToast('快捷链接已移除');
+    return;
+  }
+
+  // ---- Save Quick Link ----
+  if (action === 'save-quick-link') {
+    const nameInput = document.getElementById('quickLinkName');
+    const urlInput = document.getElementById('quickLinkUrl');
+    const name = nameInput?.value.trim();
+    const url = urlInput?.value.trim();
+
+    if (!name || !url) {
+      showToast('请输入名称和网址');
+      return;
+    }
+
+    await addQuickLink(name, url);
+    const overlay = document.querySelector('.quick-link-modal-overlay');
+    if (overlay) overlay.remove();
+
+    await renderQuickLinks();
+    showToast('快捷链接已添加');
+    return;
+  }
+
+  // ---- Cancel Quick Link ----
+  if (action === 'cancel-quick-link') {
+    const overlay = document.querySelector('.quick-link-modal-overlay');
+    if (overlay) overlay.remove();
+    return;
+  }
+
   // ---- Close all tabs in a domain group ----
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
@@ -1348,10 +1776,28 @@ document.addEventListener('click', async (e) => {
     });
     if (!group) return;
 
-    const urls      = group.tabs.map(t => t.url);
+    // Check if we're in search mode — only close matching tabs
+    const searchInput = document.getElementById('tabSearch');
+    const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    const matchingCount = actionEl.dataset.matchingCount;
+
+    let urls = group.tabs.map(t => t.url);
+
+    if (searchQuery && matchingCount) {
+      // Filter to only matching tabs
+      urls = group.tabs
+        .filter(tab => {
+          const title = (tab.title || '').toLowerCase();
+          const url = (tab.url || '').toLowerCase();
+          return title.includes(searchQuery) || url.includes(searchQuery);
+        })
+        .map(t => t.url);
+    }
+
     // Landing pages and custom groups (whose domain key isn't a real hostname)
     // must use exact URL matching to avoid closing unrelated tabs
-    const useExact  = group.domain === '__landing-pages__' || !!group.label;
+    // In search mode, also use exact matching to only close matching tabs, not the whole domain
+    const useExact  = group.domain === '__landing-pages__' || !!group.label || (searchQuery && matchingCount);
 
     if (useExact) {
       await closeTabsExact(urls);
@@ -1359,76 +1805,143 @@ document.addEventListener('click', async (e) => {
       await closeTabsByUrls(urls);
     }
 
-    if (card) {
+    // In search mode, re-render instead of removing the card (may have non-matching tabs left)
+    if (searchQuery && matchingCount) {
       playCloseSound();
-      animateCardOut(card);
+      // Animate out only the matching chips, then re-render
+      const matchingChips = card.querySelectorAll('.page-chip[data-action="focus-tab"]:not([style*="display: none"])');
+      matchingChips.forEach(chip => {
+        const rect = chip.getBoundingClientRect();
+        shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        chip.style.transition = 'opacity 0.2s, transform 0.2s';
+        chip.style.opacity = '0';
+        chip.style.transform = 'scale(0.8)';
+      });
+      setTimeout(() => renderDashboard(), 300);
+    } else {
+      if (card) {
+        playCloseSound();
+        animateCardOut(card);
+      }
+      // Remove from in-memory groups
+      const idx = domainGroups.indexOf(group);
+      if (idx !== -1) domainGroups.splice(idx, 1);
     }
 
-    // Remove from in-memory groups
-    const idx = domainGroups.indexOf(group);
-    if (idx !== -1) domainGroups.splice(idx, 1);
+    const groupLabel = group.domain === '__landing-pages__' ? '常用主页' : (group.label || friendlyDomain(group.domain));
+    showToast(`已从 ${groupLabel} 关闭 ${urls.length} 个标签`);
 
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
-
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
     return;
   }
 
   // ---- Close duplicates, keep one copy ----
   if (action === 'dedup-keep-one') {
     const urlsEncoded = actionEl.dataset.dupeUrls || '';
-    const urls = urlsEncoded.split(',').map(u => decodeURIComponent(u)).filter(Boolean);
+    let urls = urlsEncoded.split(',').map(u => decodeURIComponent(u)).filter(Boolean);
     if (urls.length === 0) return;
+
+    // Check if we're in search mode — only close duplicates among matching tabs
+    const searchInput = document.getElementById('tabSearch');
+    const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+    if (searchQuery) {
+      // Filter duplicate URLs to only those that match the search
+      urls = urls.filter(url => {
+        const tab = openTabs.find(t => t.url === url);
+        if (!tab) return false;
+        const title = (tab.title || '').toLowerCase();
+        const tabUrl = (tab.url || '').toLowerCase();
+        return title.includes(searchQuery) || tabUrl.includes(searchQuery);
+      });
+    }
+
+    if (urls.length === 0) {
+      showToast('没有匹配的重复标签可关闭');
+      return;
+    }
 
     await closeDuplicateTabs(urls, true);
     playCloseSound();
 
-    // Hide the dedup button
-    actionEl.style.transition = 'opacity 0.2s';
-    actionEl.style.opacity    = '0';
-    setTimeout(() => actionEl.remove(), 200);
+    if (searchQuery) {
+      // In search mode, re-render after closing
+      setTimeout(() => renderDashboard(), 300);
+      showToast(`已在匹配标签中关闭 ${urls.length} 个重复`);
+    } else {
+      // Hide the dedup button
+      actionEl.style.transition = 'opacity 0.2s';
+      actionEl.style.opacity    = '0';
+      setTimeout(() => actionEl.remove(), 200);
 
-    // Remove dupe badges from the card
-    if (card) {
-      card.querySelectorAll('.chip-dupe-badge').forEach(b => {
-        b.style.transition = 'opacity 0.2s';
-        b.style.opacity    = '0';
-        setTimeout(() => b.remove(), 200);
-      });
-      card.querySelectorAll('.open-tabs-badge').forEach(badge => {
-        if (badge.textContent.includes('duplicate')) {
-          badge.style.transition = 'opacity 0.2s';
-          badge.style.opacity    = '0';
-          setTimeout(() => badge.remove(), 200);
-        }
-      });
-      card.classList.remove('has-amber-bar');
-      card.classList.add('has-neutral-bar');
+      // Remove dupe badges from the card
+      if (card) {
+        card.querySelectorAll('.chip-dupe-badge').forEach(b => {
+          b.style.transition = 'opacity 0.2s';
+          b.style.opacity    = '0';
+          setTimeout(() => b.remove(), 200);
+        });
+        card.querySelectorAll('.open-tabs-badge').forEach(badge => {
+          if (badge.textContent.includes('duplicate')) {
+            badge.style.transition = 'opacity 0.2s';
+            badge.style.opacity    = '0';
+            setTimeout(() => badge.remove(), 200);
+          }
+        });
+        card.classList.remove('has-amber-bar');
+        card.classList.add('has-neutral-bar');
+      }
+
+      showToast('已关闭重复，各保留一个');
     }
-
-    showToast('Closed duplicates, kept one copy each');
     return;
   }
 
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
-    const allUrls = openTabs
-      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
-      .map(t => t.url);
-    await closeTabsByUrls(allUrls);
+    // Check if we're in search mode — only close matching tabs
+    const searchInput = document.getElementById('tabSearch');
+    const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+    let allUrls;
+    if (searchQuery) {
+      // Only close tabs matching the search query
+      allUrls = openTabs
+        .filter(t => {
+          if (!t.url || t.url.startsWith('chrome') || t.url.startsWith('about:')) return false;
+          const title = (t.title || '').toLowerCase();
+          const url = (t.url || '').toLowerCase();
+          return title.includes(searchQuery) || url.includes(searchQuery);
+        })
+        .map(t => t.url);
+    } else {
+      allUrls = openTabs
+        .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
+        .map(t => t.url);
+    }
+
+    // In search mode, use exact matching to only close matching tabs
+    // In normal mode, use hostname matching to close all tabs from those domains
+    if (searchQuery) {
+      await closeTabsExact(allUrls);
+    } else {
+      await closeTabsByUrls(allUrls);
+    }
     playCloseSound();
 
-    document.querySelectorAll('#openTabsMissions .mission-card').forEach(c => {
-      shootConfetti(
-        c.getBoundingClientRect().left + c.offsetWidth / 2,
-        c.getBoundingClientRect().top  + c.offsetHeight / 2
-      );
-      animateCardOut(c);
-    });
-
-    showToast('All tabs closed. Fresh start.');
+    if (searchQuery) {
+      // In search mode, re-render after closing matching tabs
+      setTimeout(() => renderDashboard(), 300);
+      showToast(`已关闭 ${allUrls.length} 个匹配标签`);
+    } else {
+      document.querySelectorAll('#openTabsMissions .mission-card').forEach(c => {
+        shootConfetti(
+          c.getBoundingClientRect().left + c.offsetWidth / 2,
+          c.getBoundingClientRect().top  + c.offsetHeight / 2
+        );
+        animateCardOut(c);
+      });
+      showToast('所有标签已关闭，重新开始');
+    }
     return;
   }
 });
@@ -1475,8 +1988,171 @@ document.addEventListener('input', async (e) => {
   }
 });
 
+// ---- Tab search — filter domain cards by title ----
+// Track IME composition state to avoid searching mid-pinyin
+let isComposing = false;
+
+function applyTabSearch(query) {
+  const q = query.trim().toLowerCase();
+  const cards = document.querySelectorAll('#openTabsMissions .mission-card');
+
+  if (q.length === 0) {
+    // Show all cards and all chips
+    cards.forEach(card => {
+      card.style.display = '';
+      // Restore original close button text
+      const closeBtn = card.querySelector('[data-action="close-domain-tabs"]');
+      if (closeBtn && closeBtn.dataset.originalCount) {
+        const originalCount = closeBtn.dataset.originalCount;
+        closeBtn.innerHTML = `${ICONS.close} 关闭全部 ${originalCount} 个标签${originalCount !== '1' ? '' : ''}`;
+        delete closeBtn.dataset.originalCount;
+        delete closeBtn.dataset.matchingCount;
+      }
+    });
+    document.querySelectorAll('.page-chip').forEach(chip => chip.style.display = '');
+    const overflowContainers = document.querySelectorAll('.page-chips-overflow');
+    overflowContainers.forEach(el => el.style.display = 'none');
+    const overflowBtns = document.querySelectorAll('.page-chip-overflow');
+    overflowBtns.forEach(el => el.style.display = '');
+    checkAndShowEmptyState();
+    return;
+  }
+
+  // Build a set of matching URLs from openTabs for reliable matching
+  const matchingUrls = new Set();
+  for (const tab of openTabs) {
+    const title = (tab.title || '').toLowerCase();
+    const url = (tab.url || '').toLowerCase();
+    if (title.includes(q) || url.includes(q)) {
+      matchingUrls.add(tab.url);
+    }
+  }
+
+  let visibleCardCount = 0;
+
+  cards.forEach(card => {
+    // Expand overflow containers so all chips are searchable
+    const overflowContainer = card.querySelector('.page-chips-overflow');
+    if (overflowContainer) overflowContainer.style.display = 'contents';
+    const overflowBtn = card.querySelector('.page-chip-overflow');
+    if (overflowBtn) overflowBtn.style.display = 'none';
+
+    const chips = card.querySelectorAll('.page-chip[data-action="focus-tab"]');
+    let visibleChipCount = 0;
+
+    chips.forEach(chip => {
+      // Match against: openTabs data (most reliable), DOM attributes, and text content
+      const chipUrl = (chip.dataset.tabUrl || '').toLowerCase();
+      const rawTitle = (chip.dataset.tabTitle || '').toLowerCase();
+      const chipText = (chip.textContent || '').toLowerCase();
+      const matches = matchingUrls.has(chipUrl) || rawTitle.includes(q) || chipText.includes(q) || chipUrl.includes(q);
+      chip.style.display = matches ? '' : 'none';
+      if (matches) visibleChipCount++;
+    });
+
+    // Show the card only if at least one chip matches
+    if (visibleChipCount > 0) {
+      card.style.display = '';
+      visibleCardCount++;
+
+      // Update close button to show only matching count during search
+      const closeBtn = card.querySelector('[data-action="close-domain-tabs"]');
+      if (closeBtn) {
+        const originalCount = closeBtn.dataset.originalCount;
+        if (!originalCount) {
+          // Store original count on first search
+          const match = closeBtn.textContent.match(/关闭全部 (\d+)/);
+          if (match) closeBtn.dataset.originalCount = match[1];
+        }
+        closeBtn.innerHTML = `${ICONS.close} 关闭 ${visibleChipCount} 个匹配标签${visibleChipCount !== 1 ? '' : ''}`;
+        closeBtn.dataset.matchingCount = visibleChipCount;
+      }
+    } else {
+      card.style.display = 'none';
+
+      // Restore original button text when no matches
+      const closeBtn = card.querySelector('[data-action="close-domain-tabs"]');
+      if (closeBtn && closeBtn.dataset.originalCount) {
+        const originalCount = closeBtn.dataset.originalCount;
+        closeBtn.innerHTML = `${ICONS.close} 关闭全部 ${originalCount} 个标签${originalCount !== '1' ? '' : ''}`;
+        delete closeBtn.dataset.matchingCount;
+      }
+    }
+  });
+
+  // Update section count and show empty state if no cards visible
+  const countEl = document.getElementById('openTabsSectionCount');
+  if (countEl) {
+    if (q.length > 0) {
+      const escapedQ = q.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      // Count total matching tabs across all cards
+      let totalMatching = 0;
+      document.querySelectorAll('[data-matching-count]').forEach(btn => {
+        totalMatching += parseInt(btn.dataset.matchingCount) || 0;
+      });
+      countEl.innerHTML = `${visibleCardCount} 个域名 &nbsp;&middot;&nbsp; ${totalMatching} 个标签匹配 "<em>${escapedQ}</em>" &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} 关闭 ${totalMatching} 个匹配标签${totalMatching !== 1 ? '' : ''}</button>`;
+    } else {
+      const domainCount = domainGroups.length;
+      countEl.innerHTML = `${domainCount} 个域名 &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} 关闭全部 ${openTabs.length} 个标签</button>`;
+    }
+  }
+
+  if (visibleCardCount === 0 && q.length > 0) {
+    const missionsEl = document.getElementById('openTabsMissions');
+    if (missionsEl) {
+      // Remove existing search empty state
+      const existing = missionsEl.querySelector('.search-empty-state');
+      if (existing) existing.remove();
+
+      const escapedQ = q.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const div = document.createElement('div');
+      div.className = 'missions-empty-state search-empty-state';
+      div.innerHTML = `
+        <div class="empty-checkmark" style="background:rgba(61,153,112,0.08);border-color:rgba(61,153,112,0.2);">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+        </div>
+        <div class="empty-title">没有找到匹配 "<em>${escapedQ}</em>" 的标签</div>
+        <div class="empty-subtitle">试试其他关键词</div>
+      `;
+      missionsEl.appendChild(div);
+    }
+  } else {
+    const emptyState = document.querySelector('.search-empty-state');
+    if (emptyState) emptyState.remove();
+    checkAndShowEmptyState();
+  }
+}
+
+// Handle input events — skip during IME composition
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'tabSearch') return;
+  if (isComposing) return; // Don't search while user is typing pinyin
+  applyTabSearch(e.target.value);
+});
+
+// IME composition start — pause search
+document.addEventListener('compositionstart', (e) => {
+  if (e.target.id !== 'tabSearch') return;
+  isComposing = true;
+});
+
+// IME composition end — resume search with final value
+document.addEventListener('compositionend', (e) => {
+  if (e.target.id !== 'tabSearch') return;
+  isComposing = false;
+  applyTabSearch(e.target.value);
+});
+
 
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
 renderDashboard();
+
+// Update time every second
+setInterval(() => {
+  const dateEl = document.getElementById('dateDisplay');
+  if (dateEl) dateEl.textContent = getDateDisplay();
+}, 1000);

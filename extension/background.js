@@ -8,9 +8,9 @@
  * The badge counts real web tabs (skipping chrome:// and extension pages).
  *
  * Color coding gives a quick at-a-glance health signal:
- *   Green  (#3d7a4a) → 1–10 tabs  (focused, manageable)
- *   Amber  (#b8892e) → 11–20 tabs (getting busy)
- *   Red    (#b35a5a) → 21+ tabs   (time to cull!)
+ *   Green  (#3d9970) → 1–10 tabs  (focused, manageable)
+ *   Amber  (#f4a261) → 11–20 tabs (getting busy)
+ *   Red    (#e07a5f) → 21+ tabs   (time to cull!)
  */
 
 // ─── Badge updater ────────────────────────────────────────────────────────────
@@ -45,11 +45,11 @@ async function updateBadge() {
     // Pick badge color based on workload level
     let color;
     if (count <= 10) {
-      color = '#3d7a4a'; // Green — you're in control
+      color = '#3d9970'; // Mint green — you're in control
     } else if (count <= 20) {
-      color = '#b8892e'; // Amber — things are piling up
+      color = '#f4a261'; // Warm amber — things are piling up
     } else {
-      color = '#b35a5a'; // Red — time to focus and close some tabs
+      color = '#e07a5f'; // Coral — time to focus and close some tabs
     }
 
     await chrome.action.setBadgeBackgroundColor({ color });
