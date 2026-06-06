@@ -1,91 +1,91 @@
 # Tab Out
 
-**Keep tabs on your tabs.**
+**管好你的标签页。**
 
-Tab Out is a Chrome extension that replaces your new tab page with a dashboard of everything you have open. Tabs are grouped by domain, with homepages (Gmail, X, LinkedIn, etc.) pulled into their own group. Close tabs with a satisfying swoosh + confetti.
+Tab Out 是一个 Chrome 扩展，用一个仪表盘替换你的新标签页，展示你所有打开的标签页。标签页按域名分组，主页（Gmail、X、LinkedIn 等）会被单独分到一组。关闭标签页时伴有令人愉悦的"嗖"声和彩纸效果。
 
-No server. No account. No external API calls. Just a Chrome extension.
+没有服务器。没有账户。没有外部 API 调用。只是一个 Chrome 扩展。
 
 ---
 
-## Install with a coding agent
+## 用编码代理安装
 
-Send your coding agent (Claude Code, Codex, etc.) this repo and say **"install this"**:
+把这个仓库发送给你的编码代理（Claude Code、Codex 等），然后说 **"安装这个"**：
 
 ```
 https://github.com/zarazhangrui/tab-out
 ```
 
-The agent will walk you through it. Takes about 1 minute.
+代理会引导你完成安装。大约需要 1 分钟。
 
 ---
 
-## Features
+## 功能特性
 
-- **See all your tabs at a glance** on a clean grid, grouped by domain
-- **Homepages group** pulls Gmail inbox, X home, YouTube, LinkedIn, GitHub homepages into one card
-- **Close tabs with style** with swoosh sound + confetti burst
-- **Duplicate detection** flags when you have the same page open twice, with one-click cleanup
-- **Click any tab to jump to it** across windows, no new tab opened
-- **Save for later** bookmark tabs to a checklist before closing them
-- **Localhost grouping** shows port numbers next to each tab so you can tell your vibe coding projects apart
-- **Expandable groups** show the first 8 tabs with a clickable "+N more"
-- **100% local** your data never leaves your machine
-- **Pure Chrome extension** no server, no Node.js, no npm, no setup beyond loading the extension
+- **一目了然查看所有标签页** 在整洁的网格上，按域名分组
+- **主页分组** 将 Gmail 收件箱、X 主页、YouTube、LinkedIn、GitHub 主页集中到一个卡片中
+- **优雅地关闭标签页** 伴有"嗖"声和彩纸爆发效果
+- **重复检测** 标记你打开两次的相同页面，一键清理
+- **点击任意标签页跳转** 跨窗口跳转，不会打开新标签页
+- **稍后保存** 在关闭标签页之前将其添加到待办清单
+- **本地开发服务分组** 在每个标签页旁边显示端口号，方便区分你的开发项目
+- **可展开分组** 显示前 8 个标签页，点击"+N 更多"展开
+- **100% 本地** 你的数据永远不会离开你的设备
+- **纯 Chrome 扩展** 没有服务器，没有 Node.js，没有 npm，除了加载扩展之外无需其他设置
 
 ---
 
-## Manual Setup
+## 手动安装
 
-**1. Clone the repo**
+**1. 克隆仓库**
 
 ```bash
 git clone https://github.com/zarazhangrui/tab-out.git
 ```
 
-**2. Load the Chrome extension**
+**2. 加载 Chrome 扩展**
 
-1. Open Chrome and go to `chrome://extensions`
-2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked**
-4. Navigate to the `extension/` folder inside the cloned repo and select it
+1. 打开 Chrome，访问 `chrome://extensions`
+2. 开启 **开发者模式**（右上角开关）
+3. 点击 **加载已解压的扩展程序**
+4. 导航到克隆仓库中的 `extension/` 文件夹并选择它
 
-**3. Open a new tab**
+**3. 打开新标签页**
 
-You'll see Tab Out.
+你会看到 Tab Out。
 
 ---
 
-## How it works
+## 工作原理
 
 ```
-You open a new tab
-  -> Tab Out shows your open tabs grouped by domain
-  -> Homepages (Gmail, X, etc.) get their own group at the top
-  -> Click any tab title to jump to it
-  -> Close groups you're done with (swoosh + confetti)
-  -> Save tabs for later before closing them
+你打开一个新标签页
+  -> Tab Out 显示按域名分组的打开标签页
+  -> 主页（Gmail、X 等）在顶部有自己的分组
+  -> 点击任意标签页标题跳转到该标签页
+  -> 关闭你已完成的分组（嗖声 + 彩纸）
+  -> 在关闭标签页之前将其保存以便稍后查看
 ```
 
-Everything runs inside the Chrome extension. No external server, no API calls, no data sent anywhere. Saved tabs are stored in `chrome.storage.local`.
+一切都在 Chrome 扩展内部运行。没有外部服务器，没有 API 调用，没有数据发送到任何地方。保存的标签页存储在 `chrome.storage.local` 中。
 
 ---
 
-## Tech stack
+## 技术栈
 
-| What | How |
-|------|-----|
-| Extension | Chrome Manifest V3 |
-| Storage | chrome.storage.local |
-| Sound | Web Audio API (synthesized, no files) |
-| Animations | CSS transitions + JS confetti particles |
+| 内容 | 方式 |
+|------|------|
+| 扩展 | Chrome Manifest V3 |
+| 存储 | chrome.storage.local |
+| 音效 | Web Audio API（合成，无文件） |
+| 动画 | CSS 过渡 + JS 彩纸粒子 |
 
 ---
 
-## License
+## 许可证
 
 MIT
 
 ---
 
-Built by [Zara](https://x.com/zarazhangrui)
+由 [Zara](https://x.com/zarazhangrui) 构建
